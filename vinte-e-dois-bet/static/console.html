@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Console da Casa — 22 BET</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,sans-serif}
+body{background:#0b0e11;color:#e8edf2;padding:16px;max-width:760px;margin:0 auto}
+h1{color:#f5c518;font-size:20px;margin-bottom:12px}
+h3{color:#8b98a5;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:22px 0 10px}
+.card{background:#151b23;border:1px solid #232c37;border-radius:12px;padding:14px;margin-bottom:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+input,select{background:#0f141b;border:1px solid #232c37;color:#e8edf2;border-radius:8px;padding:10px;font-size:14px}
+input{min-width:70px}
+button{cursor:pointer;border:none;border-radius:9px;padding:11px 14px;font-weight:800;font-size:14px;background:#232c37;color:#e8edf2}
+.gold{background:#f5c518;color:#111}
+.green{background:#25c26e;color:#062}
+.red{background:#ff5c5c;color:#fff}
+.big{font-size:22px;padding:18px 10px;width:100%;margin-top:8px}
+.odds{font-size:13px;color:#8b98a5;line-height:1.8}
+.odds b{color:#f5c518}
+.score{font-size:30px;font-weight:900;color:#f5c518}
+.min{color:#ff5c5c;font-size:14px}
+.txl-i{display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid #232c37;font-size:13px}
+.msg{color:#8b98a5;font-size:12px;margin-top:8px;line-height:1.5}
+.expo{color:#8b98a5;font-size:12px}
+</style>
+</head>
+<body>
+<h1>CONSOLE DA CASA · VINTE E DOIS BET</h1>
+<div id="box"></div>
+<script>
+const $=s=>document.querySelector(s);
+const fmtB=c=>(c/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+let mode="login";
+async function api(p,o={}){
+  const r=await fetch(p,{method:o.method||"GET",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:o.body?JSON.stringify(o.body):undefined});
+  let d={};try{d=await r.json()}catch(e){}
+  if(!r.ok)throw new Error(typeof d.detail==="string"?d.detail:r.status);
+  return d;
+}
+function renderLogin(){$("#box").innerHTML=`
+ <div class="card"><h3>senha do admin</h3>
+ <div class="row"><input id="pw" type="password" placeholder="senha"><button class="gold" onclick="doLogin()">entrar</button></div>
+ <div class="msg" id="lgmsg"></div></div>`;}
+async function doLogin(){try{await api("/api/admin/login",{method:"POST",body:{password:$("#pw").value}});renderMain()}catch(e){$("#lgmsg").textContent=e.message}}
+async function renderMain(){
+  const dash=await api("/api/admin/dashboard");
+  $("#box").innerHTML=`
+  <div class="card"><b>${dash.usuarios}</b> usuários · <b>${dash.apostas_abertas}</b> apostas abertas · exposição <b>${fmtB(Math.round(dash.exposicao_aberta_brl*100))}</b>
+  <div class="msg">apostado ${fmtB(Math.round(dash.apostado_brl*100))} · pago em apostas ${fmtB(Math.round(dash.pago_brl*100))} · ${dash.rodadas_crash} rodadas de crash</div></div>
+  <div class="card"><h3>nova partida (futebol)</h3>
+  <div class="row"><input id="evTitle" placeholder="Flamengo x Palmeiras" style="flex:1;min-width:150px">
+  <input id="evDate" type="datetime-local">
+  <input id="xgH" type="number" step="0.1" value="1.5" title="xg casa"><input id="xgA" type="number" step="0.1" value="1.1" title="xg fora"></div>
+  <div class="row"><button class="gold" onclick="createEvent('FOOTBALL')">criar partida + mercados</button></div>
+  <div class="msg">xg = gols esperados de cada lado (casa / fora). O motor precifica sozinho.</div></div>
+  <div class="card"><h3>novo mercado político</h3>
+  <div class="row"><input id="poTitle" placeholder="Ex.: X assumirá o cargo até dezembro?" style="flex:1;min-width:160px">
+  <input id="poLabels" placeholder="opções, virgula: Sim, Não">
+  <input id="poFair" placeholder="chances (opcional): 0.7,0.3">
+  <input id="poMargin" type="number" step="0.01" value="0.12" style="width:80px" title="margem"></div>
+  <div class="row"><button class="gold" onclick="createEvent('POLITICS')">criar mercado</button></div></div>
+  <div id="liveBox"></div>
+  <div class="card"><h3>depósitos pendentes (confirma quando o dinheiro bater)</h3><div id="deps"></div></div>
+  <div class="card"><h3>saques pendentes</h3><div id="wds"></div></div>
+  <div class="card"><h3>resolução manual (política / anomalia)</h3>
+  <div class="row"><select id="rsMkt"></select><select id="rsLbl"><option value="">anular (reembolsar)</option></select><button class="red" onclick="resolveMkt()">resolver mercado</button></div>
+  <div class="msg">Para futebol use os botões do jogo acima. Aqui resolve mercado político (escolha a opção que venceu) ou anula.</div></div>`;
+  loadLive();loadTxs();loadResolveOptions();
+}
+async function createEvent(kind){
+  try{
+    if(kind==="FOOTBALL"){
+      const d=$("#evDate").value?new Date($("#evDate").value).toISOString():null;
+      await api("/api/admin/events",{method:"POST",body:{kind,title:$("#evTitle").value,league:"",starts_at:d,xg_home:+$("#xgH").value,xg_away:+$("#xgA").value}});
+    }else{
+      const labels=$("#poLabels").value.split(",").map(s=>s.trim()).filter(Boolean);
+      const fairRaw=$("#poFair").value.split(",").map(s=>parseFloat(s));
+      const fair={};labels.forEach((l,i)=>fair[l]=fairRaw[i]??(1/labels.length));
+      await api("/api/admin/events",{method:"POST",body:{kind,title:$("#poTitle").value,labels,fair,margin:+$("#poMargin").value||0.12}});
+    }
+    toast("criado ✓");renderMain();
+  }catch(e){alert(e.message)}
+}
+let selEv=null;
+async function loadLive(){
+  const r=await api("/api/events?kind=FOOTBALL&status=LIVE");
+  const r2=await api("/api/events?kind=FOOTBALL&status=SCHEDULED");
+  const all=[...r.events,...r2.events].slice(0,30);
+  const opts=all.map(e=>`<option value="${e.id}" ${selEv==e.id?"selected":""}>${e.title} (${e.status})</option>`).join("");
+  $("#liveBox").innerHTML=`<div class="card"><h3>ao vivo / pré — console de placar</h3>
+  <div class="row"><select id="selEv" onchange="selEv=this.value?+this.value:null;loadDetail()">
+  <option value="">— escolha o jogo —</option>${opts}</select></div>
+  <div id="detail"></div></div>`;
+  if(selEv)loadDetail();
+}
+async function loadDetail(){
+  if(!selEv)return;
+  try{
+    const e=await api("/api/events/"+selEv);
+    const st=e.state||{minute:0,sh:0,sa:0};
+    const mk=e.markets.find(m=>m.key==="1X2");
+    const od=mk?mk.outcomes.map(o=>`${o.label} <b>${o.odd.toFixed(2)}</b> (${fmtB(o.stake_brl)})`).join(" · "):"—";
+    $("#detail").innerHTML=`
+    <div class="score">${st.sh} × ${st.sa} <span class="min">min ${st.minute}</span></div>
+    <div class="odds">${od}</div>
+    <div class="expo">exposição total: ${fmtB((mk?mk.stake_brl_cents:0))}</div>
+    <button class="big gold" onclick="act('golH')">⚽ GOL DA CASA</button>
+    <button class="big gold" onclick="act('golA')">⚽ GOL DO FORA</button>
+    <button class="big" onclick="act('ht')">INTERVALO (min 45)</button>
+    <button class="big" onclick="act('+15')"><b>min</b> +15</button>
+    <button class="big red" onclick="if(confirm('Encerrar e liquidar tudo?'))act('ft')">🏁 FIM DE JOGO (90 min +)</button>`;
+  }catch(err){alert(err.message)}
+}
+async function act(a){
+  const e=await api("/api/events/"+selEv);
+  const st=e.state||{minute:0,sh:0,sa:0};
+  let next={...st};
+  if(a==="golH")next.sh++;
+  if(a==="golA")next.sa++;
+  if(a==="ht")next.minute=Math.max(next.minute,45);
+  if(a==="+15")next.minute=Math.min(95,next.minute+15);
+  if(a==="ft")next.minute=95;
+  const r=await api(`/api/live/${selEv}`,{method:"POST",body:next});
+  toast(r.finished?"fim de jogo liquidado ✓":"placar atualizado"+(r.moves.length?" — linhas moveram":""));
+  loadDetail();
+}
+async function loadTxs(){
+  try{
+    const d=await api("/api/admin/deposits");
+    $("#deps").innerHTML=d.txs.filter(t=>t.status==="PENDING").map(t=>`
+      <div class="txl-i">#${t.id} ${t.currency} ${fmtB(t.amount_cents)} <code>${t.txid}</code>
+      <button class="green" onclick="fin('/api/admin/deposits/${t.id}/confirm')">CONFIRMAR</button></div>`).join("")||"<div class='msg'>nenhum depósito pendente</div>";
+    const w=await api("/api/admin/withdrawals");
+    $("#wds").innerHTML=w.txs.filter(t=>t.status==="PENDING").map(t=>`
+      <div class="txl-i">#${t.id} ${t.currency} ${fmtB(t.amount_cents)} → ${t.dest||"—"}
+      <button class="green" onclick="fin('/api/admin/withdrawals/${t.id}/approve')">APROVAR</button></div>`).join("")||"<div class='msg'>nenhum saque pendente</div>";
+  }catch(e){}
+}
+async function fin(p){try{await api(p,{method:"POST"});toast("ok ✓");loadTxs()}catch(e){alert(e.message)}}
+async function loadResolveOptions(){
+  try{
+    const pol=await api("/api/events?kind=POLITICS");
+    let html="";
+    for(const e of pol.events){
+      const ev=await api("/api/events/"+e.id);
+      for(const m of ev.markets.filter(m=>m.status==="OPEN")){
+        html+=`<option value="${m.id}" data-ev="${e.id}">${e.title} — ${m.title}</option>`;
+      }
+    }
+    $("#rsMkt").innerHTML=html||"<option value=''>nenhum mercado aberto</option>";
+    $("#rsMkt").onchange=async()=>{
+      const id=+$("#rsMkt").value;if(!id)return;
+      const evs=await api("/api/events?kind=POLITICS");
+      let lab;
+      for(const e of evs){const ev=await api("/api/events/"+e.id);const m=ev.markets.find(x=>x.id===id);if(m){lab=m;break}}
+      $("#rsLbl").innerHTML='<option value="">anular (reembolsar)</option>'+(lab?lab.outcomes.map(o=>`<option value="${o.label}">${o.label}</option>`).join(""):"");
+    };
+  }catch(e){}
+}
+async function resolveMkt(){
+  const mid=+$("#rsMkt").value;if(!mid)return;
+  const lbl=$("#rsLbl").value||null;
+  try{await api(`/api/admin/markets/${mid}/resolve`,{method:"POST",body:{label:lbl}});toast("resolvido ✓");loadResolveOptions();loadLive()}catch(e){alert(e.message)}
+}
+function toast(m){const t=document.createElement("div");t.textContent=m;t.style.cssText="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#25c26e;color:#062;padding:10px 18px;border-radius:10px;font-weight:700;z-index:9";document.body.appendChild(t);setTimeout(()=>t.remove(),2200)}
+renderLogin();
+</script>
+</body>
+</html>
